@@ -782,121 +782,20 @@ function IOSStartOverlay({ onStart }) {
     }, 'tap anywhere to start (use one finger)');
 }
 
-// About Overlay Component
-function AboutOverlay({ onClose }) {
-    const isMobile = window.innerWidth < 1024;
-
-    useEffect(() => {
-        if (window.recomputeLayout) {
-            window.recomputeLayout();
+async function enterFullscreenMode() {
+    const root = document.documentElement;
+    try {
+        if (document.fullscreenElement) return;
+        if (root.requestFullscreen) {
+            await root.requestFullscreen();
+            return;
         }
-        return () => {
-            if (window.recomputeLayout) {
-                setTimeout(() => window.recomputeLayout(), 0);
-            }
-        };
-    }, []);
-
-    return React.createElement('div', {
-        className: 'config-overlay',
-        style: { zIndex: 10000 }
-    },
-        React.createElement('div', {
-            style: {
-                width: '100%',
-                maxWidth: '600px',
-                background: 'rgba(26, 26, 46, 0.98)',
-                borderRadius: '12px',
-                padding: '30px',
-                position: 'relative'
-            }
-        },
-            React.createElement('h2', {
-                style: {
-                    fontSize: '1.8em',
-                    marginBottom: '20px',
-                    color: '#e94560',
-                    textAlign: 'center'
-                }
-            }, 'About Chordynaut'),
-            
-            React.createElement('div', {
-                style: {
-                    fontSize: '1.1em',
-                    lineHeight: '1.8',
-                    color: '#e0e0e0',
-                    marginBottom: '30px'
-                }
-            },
-                React.createElement('p', { style: { marginBottom: '15px' } },
-                    'Chordynaut was made by ',
-                    React.createElement('a', {
-                        href: 'https://x.com/decentricity',
-                        target: '_blank',
-                        rel: 'noopener noreferrer',
-                        style: { color: '#2ec4b6', textDecoration: 'underline' }
-                    }, 'Decentricity'),
-                    ' / ',
-                    React.createElement('a', {
-                        href: 'https://linkedin.com/in/decentricity',
-                        target: '_blank',
-                        rel: 'noopener noreferrer',
-                        style: { color: '#2ec4b6', textDecoration: 'underline' }
-                    }, 'Ms. Pandu Sastrowardoyo'),
-                    ' with the help of ',
-                    React.createElement('a', {
-                        href: 'https://berrry.app',
-                        target: '_blank',
-                        rel: 'noopener noreferrer',
-                        style: { color: '#2ec4b6', textDecoration: 'underline' }
-                    }, 'Berrry'),
-                    ' by ',
-                    React.createElement('a', {
-                        href: 'https://x.com/vgrichina',
-                        target: '_blank',
-                        rel: 'noopener noreferrer',
-                        style: { color: '#2ec4b6', textDecoration: 'underline' }
-                    }, 'vlad.near'),
-                    '.'
-                ),
-                React.createElement('p', null,
-                    'This instrument is inspired by the autoharps of the early 20th century as well as the Suzuki Omnichord, a digital harp created in the 1980s.'
-                ),
-                isMobile && React.createElement('p', {
-                    style: { marginTop: '1em', fontSize: '0.9em', opacity: 0.8, textAlign: 'center' }
-                }, 'For the best experience, scroll up once until this app fills your screen, then press OK.')
-            ),
-            
-            React.createElement('button', {
-                onClick: () => {
-                    onClose();
-                    if (window.recomputeLayout) {
-                        setTimeout(() => window.recomputeLayout(), 0);
-                    }
-                },
-                style: {
-                    background: '#ff6faf',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '12px 40px',
-                    fontWeight: 'bold',
-                    fontSize: '1.1em',
-                    color: 'black',
-                    cursor: 'pointer',
-                    width: '100%',
-                    transition: 'all 0.2s'
-                },
-                onMouseEnter: (e) => {
-                    e.target.style.background = '#ff85bf';
-                    e.target.style.transform = 'scale(1.05)';
-                },
-                onMouseLeave: (e) => {
-                    e.target.style.background = '#ff6faf';
-                    e.target.style.transform = 'scale(1)';
-                }
-            }, 'OK')
-        )
-    );
+        if (root.webkitRequestFullscreen) {
+            root.webkitRequestFullscreen();
+        }
+    } catch (error) {
+        console.warn('fullscreen request failed', error);
+    }
 }
 
 function getRowColor(quality, index) {
@@ -935,7 +834,6 @@ function App() {
     const [showSettings, setShowSettings] = useState(false);
     const [showIOSOverlay, setShowIOSOverlay] = useState(isIOS());
     const [showConfig, setShowConfig] = useState(false);
-    const [showAbout, setShowAbout] = useState(false);
     
     // Countdown state
     const [countdown, setCountdown] = useState(0);
@@ -1876,10 +1774,6 @@ function App() {
         return React.createElement(IOSStartOverlay, { onStart: handleIOSStart });
     }
 
-    if (showAbout) {
-        return React.createElement(AboutOverlay, { onClose: () => setShowAbout(false) });
-    }
-
     return React.createElement('div', {
         className: 'h-screen flex flex-col overflow-hidden'
     },
@@ -1892,7 +1786,7 @@ function App() {
                 React.createElement('button', {
                     className: 'fullscreen-btn',
                     title: 'fullscreen mode',
-                    onClick: () => setShowAbout(true),
+                    onClick: () => enterFullscreenMode(),
                     style: {
                         fontSize: '1.2em',
                         marginRight: '8px',
@@ -1906,8 +1800,7 @@ function App() {
                     onMouseUp: e => e.currentTarget.style.transform = 'scale(1.0)',
                 }, '⛶'),
                 React.createElement('h1', {
-                    className: 'logo-text text-sm font-bold bg-gradient-to-r from-cosmic-glow via-cosmic-secondary to-cosmic-tertiary bg-clip-text text-transparent cursor-pointer',
-                    onClick: () => setShowAbout(true),
+                    className: 'logo-text text-sm font-bold bg-gradient-to-r from-cosmic-glow via-cosmic-secondary to-cosmic-tertiary bg-clip-text text-transparent',
                     style: { userSelect: 'none' }
                 }, 'Chordynaut'),
                 countdown > 0 && React.createElement('span', {
@@ -2581,16 +2474,6 @@ function App() {
                 )
             )
         ),
-
-        React.createElement('div', {
-            className: 'flex-shrink-0 text-center text-xs text-gray-600 py-0.5'
-        },
-            React.createElement('a', {
-                href: 'https://berrry.app',
-                target: '_blank',
-                className: 'hover:text-cosmic-glow transition-colors'
-            }, '🍓 berrry.app')
-        )
     );
 }
 

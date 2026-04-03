@@ -276,5 +276,5 @@ const state = {
 
 ---
 
-**Berrry.app Footer:**
-Include a subtle footer link: "Made with 🍓 [berrry.app](https://berrry.app)" in small text at the bottom of the page.
+**Footer:**
+Keep the footer minimal or omit it entirely so the instrument surface stays dominant.
