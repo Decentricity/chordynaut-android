@@ -30,10 +30,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.webkit.WebViewAssetLoader;
 import androidx.webkit.WebViewClientCompat;
 
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
-
 public class MainActivity extends AppCompatActivity {
     private static final String APP_URL = "https://appassets.androidplatform.net/assets/www/index.html";
     private static final int REQ_OPEN_DOCUMENT = 4201;
@@ -123,7 +119,6 @@ public class MainActivity extends AppCompatActivity {
             if (parent != null) {
                 parent.requestDisallowInterceptTouchEvent(true);
             }
-            forwardTouchFrameToPage(event, v.getWidth(), v.getHeight());
             return false;
         });
 
@@ -214,40 +209,6 @@ public class MainActivity extends AppCompatActivity {
         });
 
         webView.loadUrl(APP_URL);
-    }
-
-    private void forwardTouchFrameToPage(MotionEvent event, int viewWidth, int viewHeight) {
-        if (viewWidth <= 0 || viewHeight <= 0) return;
-
-        int actionMasked = event.getActionMasked();
-        int actionIndex = event.getActionIndex();
-        JSONArray touches = new JSONArray();
-
-        if (actionMasked != MotionEvent.ACTION_CANCEL) {
-            for (int i = 0; i < event.getPointerCount(); i++) {
-                if ((actionMasked == MotionEvent.ACTION_UP || actionMasked == MotionEvent.ACTION_POINTER_UP) && i == actionIndex) {
-                    continue;
-                }
-                try {
-                    JSONObject touch = new JSONObject();
-                    touch.put("id", event.getPointerId(i));
-                    touch.put("x", Math.max(0d, Math.min(1d, event.getX(i) / (double) viewWidth)));
-                    touch.put("y", Math.max(0d, Math.min(1d, event.getY(i) / (double) viewHeight)));
-                    touches.put(touch);
-                } catch (JSONException ignored) {
-                }
-            }
-        }
-
-        try {
-            JSONObject payload = new JSONObject();
-            payload.put("touches", touches);
-            final String script =
-                "window.ChordynautNativeTouchBridge&&window.ChordynautNativeTouchBridge.updateTouchFrame("
-                    + JSONObject.quote(payload.toString()) + ");";
-            webView.post(() -> webView.evaluateJavascript(script, null));
-        } catch (JSONException ignored) {
-        }
     }
 
     @Override
