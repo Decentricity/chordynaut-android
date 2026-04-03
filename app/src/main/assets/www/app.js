@@ -798,6 +798,16 @@ async function enterFullscreenMode() {
     }
 }
 
+function capturePointerForInputTarget(target, event) {
+    if (event.pointerType === 'touch') return;
+    target.setPointerCapture?.(event.pointerId);
+}
+
+function releasePointerForInputTarget(target, event) {
+    if (event.pointerType === 'touch') return;
+    target.releasePointerCapture?.(event.pointerId);
+}
+
 function getRowColor(quality, index) {
     if (defaultQualities.includes(quality)) return "";
     const hues = [200, 260, 320, 30, 90, 140];
@@ -1569,7 +1579,7 @@ function App() {
 
     const handleChordPointerDown = useCallback((e, root, quality) => {
         e.preventDefault();
-        e.currentTarget.setPointerCapture?.(e.pointerId);
+        capturePointerForInputTarget(e.currentTarget, e);
         
         chordPointersRef.current.set(e.pointerId, { root, quality });
         
@@ -1578,7 +1588,7 @@ function App() {
 
     const handleChordPointerUp = useCallback((e) => {
         e.preventDefault();
-        e.currentTarget.releasePointerCapture?.(e.pointerId);
+        releasePointerForInputTarget(e.currentTarget, e);
         
         chordPointersRef.current.delete(e.pointerId);
         
@@ -1599,7 +1609,7 @@ function App() {
 
     const handleChordPointerCancel = useCallback((e) => {
         e.preventDefault();
-        e.currentTarget.releasePointerCapture?.(e.pointerId);
+        releasePointerForInputTarget(e.currentTarget, e);
         
         chordPointersRef.current.delete(e.pointerId);
         
@@ -1620,7 +1630,7 @@ function App() {
 
     const handleStrumPointerDown = useCallback((e) => {
         e.preventDefault();
-        e.currentTarget.setPointerCapture?.(e.pointerId);
+        capturePointerForInputTarget(e.currentTarget, e);
 
         const zone = getZoneFromPointer(e);
         if (zone === -1) return;
@@ -1714,7 +1724,7 @@ function App() {
 
     const handleStrumPointerUp = useCallback((e) => {
         e.preventDefault();
-        e.currentTarget.releasePointerCapture?.(e.pointerId);
+        releasePointerForInputTarget(e.currentTarget, e);
         
         const pointer = strumPointers.get(e.pointerId);
         if (pointer) {
