@@ -808,6 +808,10 @@ function releasePointerForInputTarget(target, event) {
     target.releasePointerCapture?.(event.pointerId);
 }
 
+function touchKey(identifier) {
+    return `touch-${identifier}`;
+}
+
 function getRowColor(quality, index) {
     if (defaultQualities.includes(quality)) return "";
     const hues = [200, 260, 320, 30, 90, 140];
@@ -1374,12 +1378,34 @@ function App() {
         };
     }, []);
 
-    const getZoneFromPointer = (e) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        const y = e.clientY - rect.top;
+    const getZoneFromPoint = (target, clientY) => {
+        const rect = target.getBoundingClientRect();
+        const y = clientY - rect.top;
         const zoneHeight = rect.height / 12;
         const zone = Math.floor(y / zoneHeight);
         return zone >= 0 && zone < 12 ? zone : -1;
+    };
+
+    const getZoneFromPointer = (e) => getZoneFromPoint(e.currentTarget, e.clientY);
+
+    const getVelocityFromPoint = (target, clientX) => {
+        const rect = target.getBoundingClientRect();
+        const relX = (clientX - rect.left) / rect.width;
+        return Math.min(1, Math.max(0.05, relX));
+    };
+
+    const getActiveStrumNotes = () => (
+        strumNotesOverrideRef.current || currentChordRef.current?.strumNotes || []
+    );
+
+    const buildZoneSetFromPointers = (pointerMap) => {
+        const zones = new Set();
+        for (const pointer of pointerMap.values()) {
+            if (pointer?.note != null) {
+                zones.add(pointer.zone);
+            }
+        }
+        return zones;
     };
 
     const recordEvent = useCallback((type, note, velocity = 1.0, source = 'performance') => {
@@ -1578,6 +1604,7 @@ function App() {
     }, [latch, recordEvent, tonic, mode]);
 
     const handleChordPointerDown = useCallback((e, root, quality) => {
+        if (e.pointerType === 'touch') return;
         e.preventDefault();
         capturePointerForInputTarget(e.currentTarget, e);
         
@@ -1587,6 +1614,7 @@ function App() {
     }, [playChord]);
 
     const handleChordPointerUp = useCallback((e) => {
+        if (e.pointerType === 'touch') return;
         e.preventDefault();
         releasePointerForInputTarget(e.currentTarget, e);
         
@@ -1608,10 +1636,8 @@ function App() {
     }, [releaseChord, latch, strumPointers, recordEvent]);
 
     const handleChordPointerCancel = useCallback((e) => {
+        if (e.pointerType === 'touch') return;
         e.preventDefault();
-        if (e.pointerType === 'touch') {
-            return;
-        }
         releasePointerForInputTarget(e.currentTarget, e);
         
         chordPointersRef.current.delete(e.pointerId);
@@ -1631,11 +1657,37 @@ function App() {
         }
     }, [releaseChord, latch, strumPointers, recordEvent]);
 
-    const handleStrumPointerCancel = useCallback((e) => {
+    const handleChordTouchStart = useCallback((e, root, quality) => {
         e.preventDefault();
-        if (e.pointerType === 'touch') {
-            return;
+        for (const touch of Array.from(e.changedTouches)) {
+            chordPointersRef.current.set(touchKey(touch.identifier), { root, quality });
         }
+        playChord(root, quality);
+    }, [playChord]);
+
+    const handleChordTouchEndLike = useCallback((e) => {
+        e.preventDefault();
+        for (const touch of Array.from(e.changedTouches)) {
+            chordPointersRef.current.delete(touchKey(touch.identifier));
+        }
+
+        if (chordPointersRef.current.size === 0 && !latch) {
+            const engine = audioEngineRef.current;
+            if (engine) {
+                for (const pointer of strumPointers.values()) {
+                    if (pointer.note != null) {
+                        engine.noteOff(pointer.note);
+                        recordEvent("noteOff", pointer.note);
+                    }
+                }
+            }
+            releaseChord();
+        }
+    }, [releaseChord, latch, strumPointers, recordEvent]);
+
+    const handleStrumPointerCancel = useCallback((e) => {
+        if (e.pointerType === 'touch') return;
+        e.preventDefault();
         releasePointerForInputTarget(e.currentTarget, e);
         
         const pointer = strumPointers.get(e.pointerId);
@@ -1659,18 +1711,16 @@ function App() {
     }, [strumPointers, recordEvent]);
 
     const handleStrumPointerDown = useCallback((e) => {
+        if (e.pointerType === 'touch') return;
         e.preventDefault();
         capturePointerForInputTarget(e.currentTarget, e);
 
         const zone = getZoneFromPointer(e);
         if (zone === -1) return;
 
-        const rect = e.currentTarget.getBoundingClientRect();
-        const relX = (e.clientX - rect.left) / rect.width;
-        const velocity = Math.min(1, Math.max(0.05, relX));
+        const velocity = getVelocityFromPoint(e.currentTarget, e.clientX);
 
-        // Get active strum notes (melody or chord)
-        const activeStrumNotes = strumNotesOverrideRef.current || currentChord?.strumNotes || [];
+        const activeStrumNotes = getActiveStrumNotes();
         
         let note = activeStrumNotes[zone] ?? null;
         if (note) {
@@ -1691,9 +1741,10 @@ function App() {
         if (note !== null) {
             setActiveStrumZones(prev => new Set(prev).add(zone));
         }
-    }, [currentChord, recordEvent, currentVoice, sampleData, strumPointers, markRecentStrum]);
+    }, [recordEvent, currentVoice, sampleData, strumPointers, markRecentStrum]);
 
     const handleStrumPointerMove = useCallback((e) => {
+        if (e.pointerType === 'touch') return;
         e.preventDefault();
         const pointer = strumPointers.get(e.pointerId);
         if (!pointer) return;
@@ -1701,11 +1752,9 @@ function App() {
         const newZone = getZoneFromPointer(e);
         if (newZone === -1) return;
 
-        const rect = e.currentTarget.getBoundingClientRect();
-        const relX = (e.clientX - rect.left) / rect.width;
-        const velocity = Math.min(1, Math.max(0.05, relX));
+        const velocity = getVelocityFromPoint(e.currentTarget, e.clientX);
 
-        const activeStrumNotes = strumNotesOverrideRef.current || currentChord?.strumNotes || [];
+        const activeStrumNotes = getActiveStrumNotes();
 
         if (!activeStrumNotes.length) {
             setStrumPointers(prev => {
@@ -1750,9 +1799,10 @@ function App() {
                 return next;
             });
         }
-    }, [strumPointers, currentChord, recordEvent, currentVoice, sampleData, markRecentStrum]);
+    }, [strumPointers, recordEvent, currentVoice, sampleData, markRecentStrum]);
 
     const handleStrumPointerUp = useCallback((e) => {
+        if (e.pointerType === 'touch') return;
         e.preventDefault();
         releasePointerForInputTarget(e.currentTarget, e);
         
@@ -1774,6 +1824,91 @@ function App() {
                 return next;
             });
         }
+    }, [strumPointers, recordEvent]);
+
+    const handleStrumTouchStart = useCallback((e) => {
+        e.preventDefault();
+        const activeStrumNotes = getActiveStrumNotes();
+        const nextPointers = new Map(strumPointers);
+
+        for (const touch of Array.from(e.changedTouches)) {
+            const zone = getZoneFromPoint(e.currentTarget, touch.clientY);
+            if (zone === -1) continue;
+            const velocity = getVelocityFromPoint(e.currentTarget, touch.clientX);
+            const key = touchKey(touch.identifier);
+            const note = activeStrumNotes[zone] ?? null;
+            const prev = nextPointers.get(key);
+
+            if (note != null && (!prev || prev.note !== note)) {
+                const sample = currentVoice === 'sample' ? sampleData : null;
+                audioEngineRef.current.noteOn(note, velocity, false, sample);
+                recordEvent("noteOn", note, velocity);
+                markRecentStrum(note);
+            }
+
+            nextPointers.set(key, { zone, velocity, note });
+        }
+
+        setStrumPointers(nextPointers);
+        setActiveStrumZones(buildZoneSetFromPointers(nextPointers));
+    }, [strumPointers, currentVoice, sampleData, recordEvent, markRecentStrum]);
+
+    const handleStrumTouchMove = useCallback((e) => {
+        e.preventDefault();
+        const activeStrumNotes = getActiveStrumNotes();
+        const nextPointers = new Map(strumPointers);
+
+        for (const touch of Array.from(e.changedTouches)) {
+            const key = touchKey(touch.identifier);
+            const pointer = nextPointers.get(key);
+            if (!pointer) continue;
+
+            const newZone = getZoneFromPoint(e.currentTarget, touch.clientY);
+            if (newZone === -1) continue;
+            const velocity = getVelocityFromPoint(e.currentTarget, touch.clientX);
+
+            if (!activeStrumNotes.length) {
+                nextPointers.set(key, { zone: newZone, velocity, note: pointer.note });
+                continue;
+            }
+
+            if (pointer.note != null && newZone !== pointer.zone) {
+                audioEngineRef.current.noteOff(pointer.note);
+                recordEvent("noteOff", pointer.note);
+            }
+
+            const newNote = activeStrumNotes[newZone] ?? null;
+            if (newNote != null && (pointer.note == null || pointer.note !== newNote || newZone !== pointer.zone)) {
+                const sample = currentVoice === 'sample' ? sampleData : null;
+                audioEngineRef.current.noteOn(newNote, velocity, false, sample);
+                recordEvent("noteOn", newNote, velocity);
+                markRecentStrum(newNote);
+            }
+
+            nextPointers.set(key, { zone: newZone, velocity, note: newNote });
+        }
+
+        setStrumPointers(nextPointers);
+        setActiveStrumZones(buildZoneSetFromPointers(nextPointers));
+    }, [strumPointers, currentVoice, sampleData, recordEvent, markRecentStrum]);
+
+    const handleStrumTouchEndLike = useCallback((e) => {
+        e.preventDefault();
+        const nextPointers = new Map(strumPointers);
+
+        for (const touch of Array.from(e.changedTouches)) {
+            const key = touchKey(touch.identifier);
+            const pointer = nextPointers.get(key);
+            if (!pointer) continue;
+            if (pointer.note != null) {
+                audioEngineRef.current.noteOff(pointer.note);
+                recordEvent("noteOff", pointer.note);
+            }
+            nextPointers.delete(key);
+        }
+
+        setStrumPointers(nextPointers);
+        setActiveStrumZones(buildZoneSetFromPointers(nextPointers));
     }, [strumPointers, recordEvent]);
 
     const handleResetConfig = useCallback(() => {
@@ -2428,8 +2563,10 @@ function App() {
                                 onPointerDown: (e) => handleChordPointerDown(e, root, quality.key),
                                 onPointerUp: handleChordPointerUp,
                                 onPointerCancel: handleChordPointerCancel,
+                                onTouchStart: (e) => handleChordTouchStart(e, root, quality.key),
+                                onTouchEnd: handleChordTouchEndLike,
+                                onTouchCancel: handleChordTouchEndLike,
                                 onContextMenu: (e) => e.preventDefault(),
-                                onTouchStart: (e) => e.preventDefault(),
                                 draggable: false,
                                 className: `chord-button ${
                                     activeChordButton === `${root}-${quality.key}` ? 'active' : ''
@@ -2455,8 +2592,11 @@ function App() {
                     onPointerMove: handleStrumPointerMove,
                     onPointerUp: handleStrumPointerUp,
                     onPointerCancel: handleStrumPointerCancel,
+                    onTouchStart: handleStrumTouchStart,
+                    onTouchMove: handleStrumTouchMove,
+                    onTouchEnd: handleStrumTouchEndLike,
+                    onTouchCancel: handleStrumTouchEndLike,
                     onContextMenu: (e) => e.preventDefault(),
-                    onTouchStart: (e) => e.preventDefault(),
                     draggable: false,
                     style: { 
                         touchAction: 'none',
