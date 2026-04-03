@@ -911,6 +911,16 @@ function App() {
     
     const chordPointersRef = useRef(new Map());
     const currentChordRef = useRef(null);
+    const strumPointersRef = useRef(new Map());
+    const nativeTouchModeRef = useRef(false);
+    const nativeStrumTouchesRef = useRef(new Map());
+    const latchRef = useRef(false);
+    const currentVoiceRef = useRef('square');
+    const sampleDataRef = useRef({
+        buffer: null,
+        baseFreq: 440,
+        isActive: false
+    });
     
     // Melody mode override
     const strumNotesOverrideRef = useRef(null);
@@ -967,14 +977,6 @@ function App() {
     }, [mode, extraQualities]);
 
     const beatsPerBar = useMemo(() => parseInt(timeSignature.split("/")[0]), [timeSignature]);
-
-    // Auto-open About overlay on first load
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            setShowAbout(true);
-        }, 400);
-        return () => clearTimeout(timer);
-    }, []);
 
     // Universal countdown helper
     const startCountdown = useCallback((seconds, onDone) => {
@@ -1248,6 +1250,22 @@ function App() {
     }, [currentChord]);
 
     useEffect(() => {
+        strumPointersRef.current = strumPointers;
+    }, [strumPointers]);
+
+    useEffect(() => {
+        latchRef.current = latch;
+    }, [latch]);
+
+    useEffect(() => {
+        currentVoiceRef.current = currentVoice;
+    }, [currentVoice]);
+
+    useEffect(() => {
+        sampleDataRef.current = sampleData;
+    }, [sampleData]);
+
+    useEffect(() => {
         setTimeout(() => {
             if (window.recomputeLayout) window.recomputeLayout();
         }, 50);
@@ -1408,6 +1426,122 @@ function App() {
         return zones;
     };
 
+    const updateNativeChordTouches = useCallback((touches) => {
+        const nextChordTouches = new Map();
+
+        for (const touch of touches) {
+            const hit = document.elementFromPoint(touch.x, touch.y);
+            const button = hit?.closest?.('.chord-button');
+            if (!button) continue;
+            const root = button.dataset.root;
+            const quality = button.dataset.quality;
+            if (!root || !quality) continue;
+            nextChordTouches.set(touch.id, { root, quality });
+        }
+
+        chordPointersRef.current = nextChordTouches;
+
+        if (nextChordTouches.size > 0) {
+            const primary = Array.from(nextChordTouches.values())[0];
+            if (
+                !currentChordRef.current ||
+                currentChordRef.current.root !== primary.root ||
+                currentChordRef.current.quality !== primary.quality
+            ) {
+                playChord(primary.root, primary.quality);
+            }
+        } else if (!latchRef.current) {
+            releaseChord();
+        }
+    }, [playChord, releaseChord]);
+
+    const updateNativeStrumTouches = useCallback((touches) => {
+        const strumPad = document.querySelector('.strum-pad');
+        if (!strumPad) return;
+
+        const nextTouches = new Map();
+        const activeStrumNotes = getActiveStrumNotes();
+
+        for (const touch of touches) {
+            const hit = document.elementFromPoint(touch.x, touch.y);
+            const inPad = hit?.closest?.('.strum-pad');
+            if (!inPad) continue;
+
+            const zone = getZoneFromPoint(strumPad, touch.y);
+            if (zone === -1) continue;
+            const velocity = getVelocityFromPoint(strumPad, touch.x);
+            const note = activeStrumNotes[zone] ?? null;
+            nextTouches.set(touch.id, { zone, velocity, note });
+        }
+
+        const prevTouches = nativeStrumTouchesRef.current;
+
+        for (const [id, prev] of prevTouches.entries()) {
+            if (!nextTouches.has(id) && prev.note != null) {
+                audioEngineRef.current.noteOff(prev.note);
+                recordEvent("noteOff", prev.note);
+            }
+        }
+
+        for (const [id, next] of nextTouches.entries()) {
+            const prev = prevTouches.get(id);
+            const sample = currentVoiceRef.current === 'sample' ? sampleDataRef.current : null;
+
+            if (!prev) {
+                if (next.note != null) {
+                    audioEngineRef.current.noteOn(next.note, next.velocity, false, sample);
+                    recordEvent("noteOn", next.note, next.velocity);
+                    markRecentStrum(next.note);
+                }
+                continue;
+            }
+
+            if (
+                prev.zone === next.zone &&
+                prev.note === next.note
+            ) {
+                continue;
+            }
+
+            if (prev.note != null) {
+                audioEngineRef.current.noteOff(prev.note);
+                recordEvent("noteOff", prev.note);
+            }
+
+            if (next.note != null) {
+                audioEngineRef.current.noteOn(next.note, next.velocity, false, sample);
+                recordEvent("noteOn", next.note, next.velocity);
+                markRecentStrum(next.note);
+            }
+        }
+
+        nativeStrumTouchesRef.current = nextTouches;
+        strumPointersRef.current = nextTouches;
+        setStrumPointers(new Map(nextTouches));
+        setActiveStrumZones(buildZoneSetFromPointers(nextTouches));
+    }, [recordEvent, markRecentStrum]);
+
+    useEffect(() => {
+        window.ChordynautNativeTouchBridge = {
+            updateTouchFrame(payload) {
+                nativeTouchModeRef.current = true;
+                const frame = typeof payload === 'string' ? JSON.parse(payload) : payload;
+                const touches = Array.isArray(frame?.touches) ? frame.touches : [];
+                const normalizedTouches = touches.map((touch) => ({
+                    id: touch.id,
+                    x: touch.x * window.innerWidth,
+                    y: touch.y * window.innerHeight
+                }));
+                updateNativeChordTouches(normalizedTouches);
+                updateNativeStrumTouches(normalizedTouches);
+            }
+        };
+
+        return () => {
+            delete window.ChordynautNativeTouchBridge;
+        };
+    }, [updateNativeChordTouches, updateNativeStrumTouches]);
+
     const recordEvent = useCallback((type, note, velocity = 1.0, source = 'performance') => {
         if (!isRecording && !isOverdubbing) return;
         const ac = audioEngineRef.current?.audioContext;
@@ -1484,6 +1618,7 @@ function App() {
         
         const newChordNotes = chordGen.getChordNotes(root, quality);
         const newStrumNotes = chordGen.getStrumNotes(newChordNotes);
+        currentChordRef.current = { root, quality, notes: newChordNotes, strumNotes: newStrumNotes };
         
         setCurrentChord({ root, quality, notes: newChordNotes, strumNotes: newStrumNotes });
         setActiveChordButton(`${root}-${quality}`);
@@ -1586,6 +1721,8 @@ function App() {
         engine.stopAllImmediately();
         
         currentChordRef.current = null;
+        nativeStrumTouchesRef.current = new Map();
+        strumPointersRef.current = new Map();
         setCurrentChord(null);
         setActiveChordButton(null);
         setActiveStrumZones(new Set());
@@ -1604,6 +1741,7 @@ function App() {
     }, [latch, recordEvent, tonic, mode]);
 
     const handleChordPointerDown = useCallback((e, root, quality) => {
+        if (nativeTouchModeRef.current && e.pointerType === 'touch') return;
         if (e.pointerType === 'touch') return;
         e.preventDefault();
         capturePointerForInputTarget(e.currentTarget, e);
@@ -1614,6 +1752,7 @@ function App() {
     }, [playChord]);
 
     const handleChordPointerUp = useCallback((e) => {
+        if (nativeTouchModeRef.current && e.pointerType === 'touch') return;
         if (e.pointerType === 'touch') return;
         e.preventDefault();
         releasePointerForInputTarget(e.currentTarget, e);
@@ -1636,6 +1775,7 @@ function App() {
     }, [releaseChord, latch, strumPointers, recordEvent]);
 
     const handleChordPointerCancel = useCallback((e) => {
+        if (nativeTouchModeRef.current && e.pointerType === 'touch') return;
         if (e.pointerType === 'touch') return;
         e.preventDefault();
         releasePointerForInputTarget(e.currentTarget, e);
@@ -1658,6 +1798,7 @@ function App() {
     }, [releaseChord, latch, strumPointers, recordEvent]);
 
     const handleChordTouchStart = useCallback((e, root, quality) => {
+        if (nativeTouchModeRef.current) return;
         e.preventDefault();
         for (const touch of Array.from(e.changedTouches)) {
             chordPointersRef.current.set(touchKey(touch.identifier), { root, quality });
@@ -1666,6 +1807,7 @@ function App() {
     }, [playChord]);
 
     const handleChordTouchEndLike = useCallback((e) => {
+        if (nativeTouchModeRef.current) return;
         e.preventDefault();
         for (const touch of Array.from(e.changedTouches)) {
             chordPointersRef.current.delete(touchKey(touch.identifier));
@@ -1686,6 +1828,7 @@ function App() {
     }, [releaseChord, latch, strumPointers, recordEvent]);
 
     const handleStrumPointerCancel = useCallback((e) => {
+        if (nativeTouchModeRef.current && e.pointerType === 'touch') return;
         if (e.pointerType === 'touch') return;
         e.preventDefault();
         releasePointerForInputTarget(e.currentTarget, e);
@@ -1711,6 +1854,7 @@ function App() {
     }, [strumPointers, recordEvent]);
 
     const handleStrumPointerDown = useCallback((e) => {
+        if (nativeTouchModeRef.current && e.pointerType === 'touch') return;
         if (e.pointerType === 'touch') return;
         e.preventDefault();
         capturePointerForInputTarget(e.currentTarget, e);
@@ -1744,6 +1888,7 @@ function App() {
     }, [recordEvent, currentVoice, sampleData, strumPointers, markRecentStrum]);
 
     const handleStrumPointerMove = useCallback((e) => {
+        if (nativeTouchModeRef.current && e.pointerType === 'touch') return;
         if (e.pointerType === 'touch') return;
         e.preventDefault();
         const pointer = strumPointers.get(e.pointerId);
@@ -1802,6 +1947,7 @@ function App() {
     }, [strumPointers, recordEvent, currentVoice, sampleData, markRecentStrum]);
 
     const handleStrumPointerUp = useCallback((e) => {
+        if (nativeTouchModeRef.current && e.pointerType === 'touch') return;
         if (e.pointerType === 'touch') return;
         e.preventDefault();
         releasePointerForInputTarget(e.currentTarget, e);
@@ -1827,6 +1973,7 @@ function App() {
     }, [strumPointers, recordEvent]);
 
     const handleStrumTouchStart = useCallback((e) => {
+        if (nativeTouchModeRef.current) return;
         e.preventDefault();
         const activeStrumNotes = getActiveStrumNotes();
         const nextPointers = new Map(strumPointers);
@@ -1854,6 +2001,7 @@ function App() {
     }, [strumPointers, currentVoice, sampleData, recordEvent, markRecentStrum]);
 
     const handleStrumTouchMove = useCallback((e) => {
+        if (nativeTouchModeRef.current) return;
         e.preventDefault();
         const activeStrumNotes = getActiveStrumNotes();
         const nextPointers = new Map(strumPointers);
@@ -1893,6 +2041,7 @@ function App() {
     }, [strumPointers, currentVoice, sampleData, recordEvent, markRecentStrum]);
 
     const handleStrumTouchEndLike = useCallback((e) => {
+        if (nativeTouchModeRef.current) return;
         e.preventDefault();
         const nextPointers = new Map(strumPointers);
 
@@ -2560,6 +2709,8 @@ function App() {
                             
                             return React.createElement('button', {
                                 key: `${root}-${quality.key}`,
+                                'data-root': root,
+                                'data-quality': quality.key,
                                 onPointerDown: (e) => handleChordPointerDown(e, root, quality.key),
                                 onPointerUp: handleChordPointerUp,
                                 onPointerCancel: handleChordPointerCancel,

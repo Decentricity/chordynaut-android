@@ -1,1 +1,1 @@
-f371df56f088d5826320c601bcddd2fcdf2bacc0ca843996483fb45a1b2605b1  /data/data/com.termux/files/home/chordynaut-v0.1.0-debug.apk
+d9da9ab178ca5aba7e5cd311ccb73844e5d3a4638886f5a881f2a7b59097bc5b  /data/data/com.termux/files/home/chordynaut-v0.1.0-debug.apk
