@@ -4,7 +4,7 @@ Native Android wrapper for the `chordynaut` web app from Berrry.
 
 ## Download
 
-- Latest debug APK: `https://raw.githubusercontent.com/Decentricity/chordynaut-android/main/releases/0.1.0/chordynaut-v0.1.0-debug.apk`
+- [Latest debug APK](https://raw.githubusercontent.com/Decentricity/chordynaut-android/main/releases/0.1.0/chordynaut-v0.1.0-debug.apk)
 
 ## What It Is
 
