@@ -5,10 +5,14 @@ import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Canvas;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.graphics.Color;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewParent;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
@@ -33,12 +37,48 @@ public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private ValueCallback<Uri[]> pendingFileChooser;
 
+    private static final class InstrumentWebView extends WebView {
+        InstrumentWebView(Context context) {
+            super(context);
+        }
+
+        private void keepTouchStreamOwned() {
+            ViewParent parent = getParent();
+            if (parent != null) {
+                parent.requestDisallowInterceptTouchEvent(true);
+            }
+        }
+
+        @Override
+        public boolean dispatchTouchEvent(MotionEvent event) {
+            keepTouchStreamOwned();
+            return super.dispatchTouchEvent(event);
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event) {
+            keepTouchStreamOwned();
+            return super.onTouchEvent(event);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            keepTouchStreamOwned();
+            super.onDraw(canvas);
+        }
+
+        @Override
+        public boolean performLongClick() {
+            return false;
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        webView = new WebView(this);
+        webView = new InstrumentWebView(this);
         FrameLayout root = new FrameLayout(this);
         root.addView(
             webView,
@@ -59,6 +99,7 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowContentAccess(true);
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
+        settings.setSupportZoom(false);
         settings.setLoadsImagesAutomatically(true);
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
@@ -67,6 +108,19 @@ public class MainActivity extends AppCompatActivity {
         settings.setTextZoom(100);
 
         webView.setBackgroundColor(Color.parseColor("#0a0a0f"));
+        webView.setLongClickable(false);
+        webView.setHapticFeedbackEnabled(false);
+        webView.setVerticalScrollBarEnabled(false);
+        webView.setHorizontalScrollBarEnabled(false);
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        webView.setOnLongClickListener(v -> true);
+        webView.setOnTouchListener((v, event) -> {
+            ViewParent parent = v.getParent();
+            if (parent != null) {
+                parent.requestDisallowInterceptTouchEvent(true);
+            }
+            return false;
+        });
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
