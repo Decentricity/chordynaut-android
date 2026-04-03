@@ -1609,6 +1609,9 @@ function App() {
 
     const handleChordPointerCancel = useCallback((e) => {
         e.preventDefault();
+        if (e.pointerType === 'touch') {
+            return;
+        }
         releasePointerForInputTarget(e.currentTarget, e);
         
         chordPointersRef.current.delete(e.pointerId);
@@ -1627,6 +1630,33 @@ function App() {
             releaseChord();
         }
     }, [releaseChord, latch, strumPointers, recordEvent]);
+
+    const handleStrumPointerCancel = useCallback((e) => {
+        e.preventDefault();
+        if (e.pointerType === 'touch') {
+            return;
+        }
+        releasePointerForInputTarget(e.currentTarget, e);
+        
+        const pointer = strumPointers.get(e.pointerId);
+        if (pointer) {
+            if (pointer.note != null) {
+                audioEngineRef.current.noteOff(pointer.note);
+                recordEvent("noteOff", pointer.note);
+            }
+            
+            setActiveStrumZones(prev => {
+                const next = new Set(prev);
+                next.delete(pointer.zone);
+                return next;
+            });
+            setStrumPointers(prev => {
+                const next = new Map(prev);
+                next.delete(e.pointerId);
+                return next;
+            });
+        }
+    }, [strumPointers, recordEvent]);
 
     const handleStrumPointerDown = useCallback((e) => {
         e.preventDefault();
@@ -2424,7 +2454,7 @@ function App() {
                     onPointerDown: handleStrumPointerDown,
                     onPointerMove: handleStrumPointerMove,
                     onPointerUp: handleStrumPointerUp,
-                    onPointerCancel: handleStrumPointerUp,
+                    onPointerCancel: handleStrumPointerCancel,
                     onContextMenu: (e) => e.preventDefault(),
                     onTouchStart: (e) => e.preventDefault(),
                     draggable: false,
