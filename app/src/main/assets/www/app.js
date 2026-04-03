@@ -1369,11 +1369,11 @@ function App() {
             if (document.hidden) hardKill();
         };
 
-        window.addEventListener('blur', hardKill);
+        window.addEventListener('pagehide', hardKill);
         document.addEventListener('visibilitychange', onVis);
 
         return () => {
-            window.removeEventListener('blur', hardKill);
+            window.removeEventListener('pagehide', hardKill);
             document.removeEventListener('visibilitychange', onVis);
         };
     }, []);
