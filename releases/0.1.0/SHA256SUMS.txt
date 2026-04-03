@@ -1,0 +1,1 @@
+67aa8894620b2a465e1bfad9deace7323e2f42a3f40b1e0c2c46a982abaf41fc  /data/data/com.termux/files/home/chordynaut-android/releases/0.1.0/chordynaut-v0.1.0-debug.apk
